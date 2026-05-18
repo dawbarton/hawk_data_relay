@@ -15,11 +15,12 @@ logger = logging.getLogger(__name__)
 
 
 class SerialReader(threading.Thread):
-    def __init__(self, config: Config, buffer: RingBuffer, log_file: TextIOWrapper):
+    def __init__(self, config: Config, buffer: RingBuffer, log_file: TextIOWrapper, cmd_log_file: TextIOWrapper):
         super().__init__(daemon=True)
         self._config = config
         self._buffer = buffer
         self._log_file = log_file
+        self._cmd_log_file = cmd_log_file
         self._stop_event = threading.Event()
         # Shared serial port and lock — also used by the API to send commands
         self.ser: serial.Serial | None = None
@@ -98,3 +99,8 @@ class SerialReader(threading.Thread):
             if self.ser is None or not self.ser.is_open:
                 raise RuntimeError("Serial port is not open")
             self.ser.write(encoded)
+        ts = time.time()
+        self._cmd_log_file.write(
+            f"{ts:.6f}," + ",".join(f"{v:.6f}" for v in values) + "\n"
+        )
+        self._cmd_log_file.flush()

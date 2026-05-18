@@ -76,19 +76,23 @@ Returns the current state of the relay.
   "num_floats": 10,
   "connected": true,
   "buffer_frames": 1234,
-  "log_file": "logs/experiment_20240409_143022.csv"
+  "log_file": "logs/experiment_20240409_143022.csv",
+  "cmd_log_file": "logs/commands_20240409_143022.csv"
 }
 ```
 
 ## Log files
 
-Each run creates a timestamped CSV in `--log-dir`:
+Each run creates two timestamped CSVs in `--log-dir`, sharing the same timestamp suffix so they can be matched:
 
 ```
-logs/experiment_20240409_143022.csv
+logs/experiment_20240409_143022.csv   ← data received from MCU
+logs/commands_20240409_143022.csv     ← commands sent to MCU
 ```
 
-Format: one row per frame, first column is a Unix timestamp.
+### Experiment log (`experiment_*.csv`)
+
+One row per received frame; first column is a Unix timestamp.
 
 ```
 # timestamp,ch0,ch1,ch2,...
@@ -101,6 +105,23 @@ Load in MATLAB after the experiment:
 data = readmatrix('logs/experiment_20240409_143022.csv', 'CommentStyle', '#');
 timestamps = data(:, 1);
 channels   = data(:, 2:end);
+```
+
+### Command log (`commands_*.csv`)
+
+One row per command sent; first column is a Unix timestamp, remaining columns are the float values (number of columns varies per command).
+
+```
+# timestamp,val0,val1,...
+1712600125.123456,1.000000,0.500000,0.000000
+```
+
+Load in MATLAB after the experiment:
+
+```matlab
+cmds = readmatrix('logs/commands_20240409_143022.csv', 'CommentStyle', '#');
+cmd_timestamps = cmds(:, 1);
+cmd_values     = cmds(:, 2:end);
 ```
 
 ## MATLAB usage
