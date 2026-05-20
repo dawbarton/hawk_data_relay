@@ -1,9 +1,9 @@
 import logging
+import queue
 import struct
 import threading
 import time
 from io import TextIOWrapper
-from pathlib import Path
 
 import serial
 from cobs import cobs
@@ -22,7 +22,10 @@ class SerialReader(threading.Thread):
         self._log_file = log_file
         self._cmd_log_file = cmd_log_file
         self._stop_event = threading.Event()
-        # Shared serial port and lock — also used by the API to send commands
+        # All serial I/O is performed exclusively on this thread.
+        # send_command() enqueues encoded bytes here; _read_loop() drains them.
+        self._cmd_queue: queue.Queue[bytes] = queue.Queue()
+        # serial_lock guards self.ser open/close state (not I/O)
         self.ser: serial.Serial | None = None
         self.serial_lock = threading.Lock()
 
@@ -49,6 +52,12 @@ class SerialReader(threading.Thread):
                     if self.ser and self.ser.is_open:
                         self.ser.close()
                     self.ser = None
+                # Discard queued commands that can no longer be sent
+                try:
+                    while True:
+                        self._cmd_queue.get_nowait()
+                except queue.Empty:
+                    pass
                 self._stop_event.wait(timeout=2)
 
         with self.serial_lock:
@@ -59,6 +68,16 @@ class SerialReader(threading.Thread):
     def _read_loop(self, expected_len: int, fmt: str) -> None:
         buf = bytearray()
         while not self._stop_event.is_set():
+            # Drain any pending outbound commands before blocking on read.
+            # All serial I/O happens on this thread, so no concurrent access.
+            try:
+                while True:
+                    encoded = self._cmd_queue.get_nowait()
+                    if self.ser is not None:
+                        self.ser.write(encoded)
+            except queue.Empty:
+                pass
+
             try:
                 byte = self.ser.read(1)
             except serial.SerialException as exc:
@@ -98,7 +117,8 @@ class SerialReader(threading.Thread):
         with self.serial_lock:
             if self.ser is None or not self.ser.is_open:
                 raise RuntimeError("Serial port is not open")
-            self.ser.write(encoded)
+        # Enqueue for the reader thread to write; avoids concurrent serial access
+        self._cmd_queue.put(encoded)
         ts = time.time()
         self._cmd_log_file.write(
             f"{ts:.6f}," + ",".join(f"{v:.6f}" for v in values) + "\n"
